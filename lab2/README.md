@@ -1,6 +1,6 @@
 # Lab2
 ## Схема:
-![scheme](attachments/Pasted_image_20251230093126.png)
+![scheme](../lab1/attachments/Pasted_image_20251230093126.png)
 ## План работ:
 - Схему и адресацию используем из лабы 1, также настраиваем лупбеки для последующего анонсирования.
 - Включаем passive-interface default + no passive для нужных интерфейсов
