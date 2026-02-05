@@ -7,6 +7,7 @@
 - Настраиваем underlay на **eBGP**
 - Спайны используют AS 65500, а лифы 65501-65534
 - router-id равен адресу на лупбеке
+- Настраиваем bfd (neighbor UNDERLAY_POD1 bfd)
 ## Таблица лупбеков
 - Spine1 - 172.16.2.1/32
 - Spine2 - 172.16.2.2/32
@@ -452,3 +453,116 @@ traceroute to 172.16.2.2 (172.16.2.2), 30 hops max, 60 byte packets
 #### Spine1:
 При использовании eBGP коннект между спайнами, если он нужен, придётся организовывать, например с помощью статического роутинга.
 Связность между спайнами и лифами продемонстрирована выше.
+
+#### Проверка работы bfd:
+
+#### Spine1:
+```
+spine1#sh ip bgp neighbors bfd  
+BGP BFD Neighbor Table  
+Flags: U - BFD is enabled for BGP neighbor and BFD session state is UP  
+      I - BFD is enabled for BGP neighbor and BFD session state is INIT  
+      D - BFD is enabled for BGP neighbor and BFD session state is DOWN  
+      d - BFD damping timer is active  
+      N - BFD is not enabled for BGP neighbor  
+Neighbor           Interface          Up/Down    State       Flags  
+10.1.1.1           Ethernet1          00:14:59   Established U       
+10.1.1.5           Ethernet2          00:14:57   Established U       
+10.1.1.9           Ethernet3          00:14:58   Established U
+```
+###### Первая попытка поломать bfd на leaf1: 
+```
+leaf1(config-router-bgp)# neighbor UNDERLAY_POD1 bfd interval 3000 min-rx 100 mult 3
+```
+Ничего не происходит, т.к. интервалы согласовываются постоянно, и после изменения на leaf1 противоположная сторона - spine1 эту информацию получает в очередном control packet и теперь ожидает новые пакеты с интервалом в 1 секунду.
+###### Вторая попытка поломать bfd на leaf1: 
+```
+leaf1(config-router-bgp)#no neighbor UNDERLAY_POD1 bfd
+```
+Получаем на spine1:
+```
+spine1#  
+Feb  5 07:47:32 spine1 Bfd: %BFD-5-STATE_CHANGE: peer (vrf:default, ip:10.1.1.1, intf:Ethernet1, type:normal) change  
+d state from Up to Down diag NeighDown
+
+spine1#sh ip bgp neighbors bfd  
+BGP BFD Neighbor Table  
+Flags: U - BFD is enabled for BGP neighbor and BFD session state is UP  
+      I - BFD is enabled for BGP neighbor and BFD session state is INIT  
+      D - BFD is enabled for BGP neighbor and BFD session state is DOWN  
+      d - BFD damping timer is active  
+      N - BFD is not enabled for BGP neighbor  
+Neighbor           Interface          Up/Down    State       Flags  
+10.1.1.1           Ethernet1          00:20:27   Established D       
+10.1.1.5           Ethernet2          00:20:27   Established U       
+10.1.1.9           Ethernet3          00:20:27   Established U
+
+spine1#sh bgp summary  
+BGP summary information for VRF default  
+Router identifier 172.16.2.1, local AS number 65500  
+Neighbor          AS Session State AFI/SAFI                AFI/SAFI State   NLRI Rcd   NLRI Acc  
+-------- ----------- ------------- ----------------------- -------------- ---------- ----------  
+10.1.1.1       65501 Established   IPv4 Unicast            Negotiated              1          1  
+10.1.1.5       65502 Established   IPv4 Unicast            Negotiated              1          1  
+10.1.1.9       65503 Established   IPv4 Unicast            Negotiated              1          1
+```
+Видим, сессия BFD перешла в Down, но BGP сессия не разорвалась. А всё потому, что leaf1 сообщил, что он отключил BFD у себя административно:
+![bfd](attachments/2026-02-05_09-57-44.png)
+###### Финальная попытка поломать bfd на leaf1: 
+В GNS3 переводим линк между leaf1 и spine1 в состояние suspend и теперь получаем разрыв сессии:
+```
+leaf1#  
+Feb  5 08:01:10 leaf1 Bgp: %BGP-3-NOTIFICATION: sent to neighbor 10.1.1.2 (VRF default AS 65500) 6/10 (Cease/BFD dow  
+n <Hard Reset>) 0 bytes  
+
+leaf1#sh ip bgp neighbors bfd    
+BGP BFD Neighbor Table  
+Flags: U - BFD is enabled for BGP neighbor and BFD session state is UP  
+      I - BFD is enabled for BGP neighbor and BFD session state is INIT  
+      D - BFD is enabled for BGP neighbor and BFD session state is DOWN  
+      d - BFD damping timer is active  
+      N - BFD is not enabled for BGP neighbor  
+Neighbor           Interface          Up/Down    State       Flags  
+10.1.1.2           none               00:00:42   Idle        D       
+10.1.2.2           Ethernet2          00:35:09   Established U       
+
+leaf1#sh bgp sum  
+BGP summary information for VRF default  
+Router identifier 172.16.1.1, local AS number 65501  
+Neighbor          AS Session State AFI/SAFI                AFI/SAFI State   NLRI Rcd   NLRI Acc  
+-------- ----------- ------------- ----------------------- -------------- ---------- ----------  
+10.1.1.2       65500 Idle          IPv4 Unicast            Configured              0          0  
+10.1.2.2       65500 Established   IPv4 Unicast            Negotiated              3          3
+```
+
+На спайне определяется падение интерфейса, поэтому поведение несколько другое, но это уже не важно, т.к. работу bfd мы видим на leaf1. Жаль, что на остановленном интерфейсе не видно пакета BGP NOTIFICATION с Cease/BFD down, но он там был бы в реальных условиях.
+```
+spine1#  
+Feb  5 08:01:10 spine1 Ebra: %LINEPROTO-5-UPDOWN: Line protocol on Interface Ethernet1, changed state to down  
+spine1#  
+Feb  5 08:01:10 spine1 Bfd: %BFD-5-STATE_CHANGE: peer (vrf:default, ip:10.1.1.1, intf:Ethernet1, type:normal) change  
+d state from Up to Down diag None  
+spine1#  
+Feb  5 08:01:10 spine1 Bgp: %BGP-5-ADJCHANGE: peer 10.1.1.1 (VRF default AS 65501) old state Established event Stop  
+new state Idle  
+
+spine1#sh ip bgp neighbors bfd  
+BGP BFD Neighbor Table  
+Flags: U - BFD is enabled for BGP neighbor and BFD session state is UP  
+      I - BFD is enabled for BGP neighbor and BFD session state is INIT  
+      D - BFD is enabled for BGP neighbor and BFD session state is DOWN  
+      d - BFD damping timer is active  
+      N - BFD is not enabled for BGP neighbor  
+Neighbor           Interface          Up/Down    State       Flags  
+10.1.1.5           Ethernet2          00:34:47   Established U       
+10.1.1.9           Ethernet3          00:34:46   Established U       
+
+spine1#sh bgp summary  
+BGP summary information for VRF default  
+Router identifier 172.16.2.1, local AS number 65500  
+Neighbor          AS Session State AFI/SAFI                AFI/SAFI State   NLRI Rcd   NLRI Acc  
+-------- ----------- ------------- ----------------------- -------------- ---------- ----------  
+10.1.1.5       65502 Established   IPv4 Unicast            Negotiated              1          1  
+10.1.1.9       65503 Established   IPv4 Unicast            Negotiated              1          1
+
+```
