@@ -454,9 +454,9 @@ traceroute to 172.16.2.2 (172.16.2.2), 30 hops max, 60 byte packets
 При использовании eBGP коннект между спайнами, если он нужен, придётся организовывать, например с помощью статического роутинга.
 Связность между спайнами и лифами продемонстрирована выше.
 
-#### Проверка работы bfd:
+## Проверка работы BFD:
 
-#### Spine1:
+#### Рабочее состояние:
 ```
 spine1#sh ip bgp neighbors bfd  
 BGP BFD Neighbor Table  
@@ -469,6 +469,17 @@ Neighbor           Interface          Up/Down    State  �
 10.1.1.1           Ethernet1          00:14:59   Established U       
 10.1.1.5           Ethernet2          00:14:57   Established U       
 10.1.1.9           Ethernet3          00:14:58   Established U
+
+leaf1#sh ip bgp neighbors bfd  
+BGP BFD Neighbor Table  
+Flags: U - BFD is enabled for BGP neighbor and BFD session state is UP  
+      I - BFD is enabled for BGP neighbor and BFD session state is INIT  
+      D - BFD is enabled for BGP neighbor and BFD session state is DOWN  
+      d - BFD damping timer is active  
+      N - BFD is not enabled for BGP neighbor  
+Neighbor           Interface          Up/Down    State       Flags  
+10.1.1.2           Ethernet1          00:14:59   Established U       
+10.1.2.2           Ethernet2          00:14:57   Established U
 ```
 ###### Первая попытка поломать bfd на leaf1: 
 ```
