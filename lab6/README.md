@@ -548,6 +548,7 @@ interface Vlan87
    ip address 192.168.87.1/30
 ``` 
 Мапинг новых вланов в vni не делаем, т.к. эти сети существуют только на leaf3
+
 Мапим VRF2 в vni 22222
   ```
   interface Vxlan1 
